@@ -1,0 +1,84 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Integration
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The end-to-end test itself. Only Linux runs it: GitHub's macOS runners ship
+  # no Docker daemon, and the Windows runners can run Windows containers but not
+  # the Linux containers this stack is built from. Compose is what makes the
+  # test behave identically for a developer on any of the three platforms; the
+  # runner-self-test job below is what keeps that claim honest.
+  #
+  # No docker-in-docker setup is needed: the GitHub-hosted Ubuntu runner already
+  # exposes a working Docker daemon, and the containers talk to each other over
+  # a user-defined bridge network, which is what makes mDNS multicast work here
+  # when it does not work on the runner's own host network.
+  integration-test:
+    name: mDNS discovery (Docker Compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Run integration test
+        run: python tests/integration/run.py --verbose
+
+  # Runs on all three platforms to verify the test runner itself is portable --
+  # argument handling, path handling and the log assertions. It needs no Docker,
+  # so it is fast and works on the macOS and Windows runners where the full
+  # stack cannot run.
+  runner-self-test:
+    name: Runner self-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Self-test
+        run: python tests/integration/run.py --self-test
+
+      - name: Argument parsing
+        run: python tests/integration/run.py --help

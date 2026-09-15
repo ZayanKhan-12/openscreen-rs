@@ -1,0 +1,79 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Integration test topology: one receiver advertising over mDNS, one sender that
+# has to discover it and complete the OpenScreen handshake.
+#
+# Run it through ../../tests/integration/run.py, which generates a unique
+# receiver name per run and asserts on the result. Every value below also has a
+# default so that `docker compose up` works directly for debugging.
+
+name: openscreen-integration
+
+services:
+  receiver:
+    build:
+      context: ../..
+      dockerfile: tests/integration/Dockerfile
+    image: openscreen-rs-integration:latest
+    command:
+      - app-receiver
+      - --name=${OPENSCREEN_RECEIVER_NAME:-openscreen-ci-receiver}
+      - --psk=${OPENSCREEN_PSK:-integration-test-psk}
+      - --port=${OPENSCREEN_APP_PORT:-4433}
+      - --mdns-port=${OPENSCREEN_MDNS_PORT:-5454}
+    environment:
+      # Plain output: the apps colourise via the `colored` crate, and the test
+      # asserts on these strings.
+      NO_COLOR: "1"
+      RUST_LOG: ${OPENSCREEN_RUST_LOG:-info}
+    networks:
+      - openscreen
+    healthcheck:
+      # app-receiver publishes its mDNS service *before* binding the QUIC
+      # socket, so a listening UDP port is a sufficient readiness signal for
+      # both. Without this the sender can start browsing before the service is
+      # advertised and fail intermittently.
+      test:
+        - CMD-SHELL
+        - ss -lun | grep -q ":${OPENSCREEN_APP_PORT:-4433}"
+      interval: 1s
+      timeout: 3s
+      retries: 40
+      start_period: 2s
+
+  sender:
+    image: openscreen-rs-integration:latest
+    depends_on:
+      receiver:
+        condition: service_healthy
+    command:
+      - app-sender
+      - --psk=${OPENSCREEN_PSK:-integration-test-psk}
+      - --mdns-port=${OPENSCREEN_MDNS_PORT:-5454}
+      - --discovery-timeout=${OPENSCREEN_DISCOVERY_TIMEOUT:-10}
+    environment:
+      NO_COLOR: "1"
+      RUST_LOG: ${OPENSCREEN_RUST_LOG:-info}
+    networks:
+      - openscreen
+    restart: "no"
+
+networks:
+  openscreen:
+    # A user-defined bridge, not the default one. Containers attached to the
+    # same Linux bridge can exchange multicast, which is what makes mDNS
+    # discovery work here when it does not work on a GitHub Actions host
+    # network.
+    driver: bridge

@@ -1,0 +1,10 @@
+# Keep the build context small and the image reproducible: target/ is rebuilt
+# inside the builder stage, and the rest is never needed to compile.
+target/
+.git/
+.github/
+*.log
+logs/
+.openscreen/
+.DS_Store
+tests/integration/README.md
