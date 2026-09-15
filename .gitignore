@@ -4,3 +4,5 @@ Cargo.lock
 logs/*
 .DS_Store
 .openscreen/
+__pycache__/
+*.py[cod]
