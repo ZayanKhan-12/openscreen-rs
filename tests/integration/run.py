@@ -182,7 +182,7 @@ def run_step(
 def service_logs(compose: list[str], env: dict[str, str], service: str) -> str:
     """Return one service's logs with Compose's ``service |`` prefix stripped."""
     result = subprocess.run(
-        [*compose, "logs", "--no-log-prefix", service],
+        [*compose, "logs", service],
         env=env,
         cwd=HERE,
         capture_output=True,
@@ -190,7 +190,14 @@ def service_logs(compose: list[str], env: dict[str, str], service: str) -> str:
         errors="replace",
         check=False,
     )
-    return result.stdout + result.stderr
+    raw_logs = result.stdout + result.stderr
+    stripped_lines = []
+    for line in raw_logs.splitlines():
+        if " | " in line:
+            stripped_lines.append(line.split(" | ", 1)[1])
+        else:
+            stripped_lines.append(line)
+    return "\n".join(stripped_lines)
 
 
 def run_integration_test(args: argparse.Namespace) -> int:
